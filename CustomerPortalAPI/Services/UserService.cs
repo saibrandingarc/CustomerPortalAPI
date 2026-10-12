@@ -216,6 +216,40 @@ namespace CustomerPortalAPI.Services
                     && a.CreatedAtUtc >= fromUtc)
                 .AnyAsync();
         }
+
+        public async Task<(bool IsLocked, int RetryAfterMinutes)> GetActiveLockoutAsync(string email, int lockoutMinutes)
+        {
+            if (string.IsNullOrWhiteSpace(email))
+            {
+                return (false, 0);
+            }
+
+            var now = DateTime.UtcNow;
+            var fromUtc = now.AddMinutes(-lockoutMinutes);
+
+            var lockedAt = await _context.LoginActivities
+                .Where(a => a.Email == email
+                    && a.ActivityType == "AccountLockout"
+                    && a.Status == "Locked"
+                    && a.CreatedAtUtc >= fromUtc)
+                .OrderByDescending(a => a.CreatedAtUtc)
+                .Select(a => (DateTime?)a.CreatedAtUtc)
+                .FirstOrDefaultAsync();
+
+            if (lockedAt == null)
+            {
+                return (false, 0);
+            }
+
+            var lockedUntil = lockedAt.Value.AddMinutes(lockoutMinutes);
+            if (lockedUntil <= now)
+            {
+                return (false, 0);
+            }
+
+            var retryAfterMinutes = (int)Math.Ceiling((lockedUntil - now).TotalMinutes);
+            return (true, Math.Max(1, retryAfterMinutes));
+        }
     }
 }
 

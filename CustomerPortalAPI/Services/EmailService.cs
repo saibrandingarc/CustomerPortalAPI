@@ -679,7 +679,7 @@ namespace CustomerPortalAPI.Services
             }
         }
 
-        public async Task SendFailedLoginAlertAsync(string toEmail, int failedAttempts, int withinMinutes, bool isHtml = true)
+        public async Task SendFailedLoginAlertAsync(string toEmail, int failedAttempts, int withinMinutes, int lockoutMinutes = 15, bool isHtml = true)
         {
             try
             {
@@ -696,6 +696,7 @@ namespace CustomerPortalAPI.Services
 
                 var message =
                     $"We noticed {failedAttempts} failed login attempts on your account within the last {withinMinutes} minutes.<br/>" +
+                    $"Your account is locked for {lockoutMinutes} minutes.<br/>" +
                     "If this was not you, reset your password immediately and contact support.";
 
                 mimeMessage.Body = new TextPart(isHtml ? "html" : "plain") { Text = message };

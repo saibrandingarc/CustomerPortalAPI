@@ -20,6 +20,10 @@ public class ZohoController : ControllerBase
     private readonly EmailService _emailService;
     private readonly Auth0Services _auth0Service;
 
+    private const int FailedLoginThreshold = 3;
+    private const int FailedWindowMinutes = 15;
+    private const int LockoutMinutes = 15;
+
     public ZohoController(ZohoServices zohoOAuthService, UserService userService, EmailService emailService, Auth0Services auth0Services)
     {
         _zohoOAuthService = zohoOAuthService;
@@ -221,6 +225,12 @@ public class ZohoController : ControllerBase
     [HttpPost("zoho/checkEmail")]
     public async Task<IActionResult> checkEmail([FromBody] EmailModel email)
     {
+        var locked = await AccountLockedResultAsync(email.Email);
+        if (locked != null)
+        {
+            return locked;
+        }
+
         var response = new ApiResponse();
         var zohoAccountDetails = await _zohoOAuthService.checkEmail(email.Email);
         if(zohoAccountDetails == "")
@@ -305,8 +315,12 @@ public class ZohoController : ControllerBase
     [HttpPost("zoho/login")]
     public async Task<IActionResult> login([FromBody] EmailModel email)
     {
-        const int failedLoginThreshold = 3;
-        const int failedWindowMinutes = 15;
+        var locked = await AccountLockedResultAsync(email.Email);
+        if (locked != null)
+        {
+            return locked;
+        }
+
         var ipAddress = GetClientIpAddress();
         var userAgent = GetUserAgent();
 
@@ -338,45 +352,26 @@ public class ZohoController : ControllerBase
                 auth0TokenObj.Email = userData.Email;
                 auth0TokenObj.Username = userData.full_name;
                 return Ok(auth0TokenObj);
-            } else
-            {
-                await _userService.RecordLoginActivityAsync(
-                    email.Email,
-                    "Login",
-                    "Failed",
-                    "Auth0 authentication failed.",
-                    ipAddress,
-                    userAgent);
-
-                var failedCount = await _userService.GetRecentFailedLoginCountAsync(email.Email, failedWindowMinutes);
-                var alreadyNotified = await _userService.HasRecentFailureAlertAsync(email.Email, failedWindowMinutes);
-                if (failedCount >= failedLoginThreshold && !alreadyNotified)
-                {
-                    await _emailService.SendFailedLoginAlertAsync(email.Email, failedCount, failedWindowMinutes);
-                    await _userService.RecordLoginActivityAsync(
-                        email.Email,
-                        "FailedLoginAlert",
-                        "Notified",
-                        $"Alert email sent after {failedCount} failed attempts in {failedWindowMinutes} minutes.",
-                        ipAddress,
-                        userAgent);
-                }
-
-                return NoContent();
             }
-        }
-        else
-        {
-            await _userService.RecordLoginActivityAsync(
+
+            var authFailure = await RecordFailedLoginAsync(
                 email.Email,
                 "Login",
-                "Failed",
-                "User not found or not eligible for login.",
+                "Auth0 authentication failed.",
                 ipAddress,
-                userAgent);
-
-            return NoContent();
+                userAgent,
+                sendAlert: true);
+            return authFailure ?? NoContent();
         }
+
+        var unknownUser = await RecordFailedLoginAsync(
+            email.Email,
+            "Login",
+            "User not found or not eligible for login.",
+            ipAddress,
+            userAgent,
+            sendAlert: false);
+        return unknownUser ?? NoContent();
     }
 
     [HttpPost("zoho/logout")]
@@ -409,8 +404,6 @@ public class ZohoController : ControllerBase
             return BadRequest(new { message = "Email is required." });
         }
 
-        const int failedLoginThreshold = 3;
-        const int failedWindowMinutes = 15;
         var ipAddress = GetClientIpAddress();
         var userAgent = GetUserAgent();
         var provider = string.IsNullOrWhiteSpace(emailModel.logintype) ? "Social" : emailModel.logintype;
@@ -418,27 +411,16 @@ public class ZohoController : ControllerBase
             ? $"{provider} login failed."
             : emailModel.details;
 
-        await _userService.RecordLoginActivityAsync(
+        var locked = await RecordFailedLoginAsync(
             emailModel.Email,
             $"{provider}Login",
-            "Failed",
             details,
             ipAddress,
-            userAgent);
-
-        var failedCount = await _userService.GetRecentFailedLoginCountAsync(emailModel.Email, failedWindowMinutes);
-        var alreadyNotified = await _userService.HasRecentFailureAlertAsync(emailModel.Email, failedWindowMinutes);
-
-        if (failedCount >= failedLoginThreshold && !alreadyNotified)
+            userAgent,
+            sendAlert: true);
+        if (locked != null)
         {
-            await _emailService.SendFailedLoginAlertAsync(emailModel.Email, failedCount, failedWindowMinutes);
-            await _userService.RecordLoginActivityAsync(
-                emailModel.Email,
-                "FailedLoginAlert",
-                "Notified",
-                $"Alert email sent after {failedCount} failed attempts in {failedWindowMinutes} minutes.",
-                ipAddress,
-                userAgent);
+            return locked;
         }
 
         return Ok(new { message = "Failed login attempt recorded." });
@@ -566,6 +548,97 @@ public class ZohoController : ControllerBase
             }
         }
         return Ok(response);
+    }
+
+    private async Task<IActionResult?> AccountLockedResultAsync(string? email)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            return null;
+        }
+
+        var lockout = await _userService.GetActiveLockoutAsync(email, LockoutMinutes);
+        if (!lockout.IsLocked)
+        {
+            return null;
+        }
+
+        return AccountLocked(lockout.RetryAfterMinutes);
+    }
+
+    private IActionResult AccountLocked(int retryAfterMinutes)
+    {
+        var minutes = Math.Max(1, retryAfterMinutes);
+        var unit = minutes == 1 ? "minute" : "minutes";
+        Response.Headers.RetryAfter = (minutes * 60).ToString();
+        return StatusCode(StatusCodes.Status423Locked, new
+        {
+            locked = true,
+            message = $"Your account is locked after too many failed login attempts. Try again in {minutes} {unit}.",
+            retryAfterMinutes = minutes
+        });
+    }
+
+    private async Task<IActionResult?> RecordFailedLoginAsync(
+        string email,
+        string activityType,
+        string details,
+        string? ipAddress,
+        string? userAgent,
+        bool sendAlert)
+    {
+        var alreadyLocked = await AccountLockedResultAsync(email);
+        if (alreadyLocked != null)
+        {
+            return alreadyLocked;
+        }
+
+        await _userService.RecordLoginActivityAsync(
+            email,
+            activityType,
+            "Failed",
+            details,
+            ipAddress,
+            userAgent);
+
+        var failedCount = await _userService.GetRecentFailedLoginCountAsync(email, FailedWindowMinutes);
+        if (failedCount < FailedLoginThreshold)
+        {
+            return null;
+        }
+
+        await _userService.RecordLoginActivityAsync(
+            email,
+            "AccountLockout",
+            "Locked",
+            $"Account locked for {LockoutMinutes} minutes after {failedCount} failed attempts.",
+            ipAddress,
+            userAgent);
+
+        if (sendAlert)
+        {
+            var alreadyNotified = await _userService.HasRecentFailureAlertAsync(email, FailedWindowMinutes);
+            if (!alreadyNotified)
+            {
+                try
+                {
+                    await _emailService.SendFailedLoginAlertAsync(email, failedCount, FailedWindowMinutes, LockoutMinutes);
+                    await _userService.RecordLoginActivityAsync(
+                        email,
+                        "FailedLoginAlert",
+                        "Notified",
+                        $"Alert email sent after {failedCount} failed attempts in {FailedWindowMinutes} minutes. Account locked for {LockoutMinutes} minutes.",
+                        ipAddress,
+                        userAgent);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Failed to send lockout alert for {email}: {ex.Message}");
+                }
+            }
+        }
+
+        return AccountLocked(LockoutMinutes);
     }
 
     private string? GetClientIpAddress()
