@@ -541,4 +541,214 @@ public class GoogleServices
 
         return permissionResponses;
     }
+
+    public async Task<List<GoogleSheetRow>> ReadConfiguredSheetAsync()
+    {
+        var sheetUrl = _configuration["credit_menu"];
+        if (string.IsNullOrWhiteSpace(sheetUrl))
+        {
+            sheetUrl = _configuration["GoogleSheet:Url"];
+        }
+
+        if (string.IsNullOrWhiteSpace(sheetUrl))
+        {
+            throw new InvalidOperationException("credit_menu is not configured in appsettings.json.");
+        }
+
+        var spreadsheetId = ExtractSpreadsheetId(sheetUrl);
+        if (string.IsNullOrWhiteSpace(spreadsheetId))
+        {
+            throw new InvalidOperationException(
+                "GoogleSheet:Url must be a Google Sheets link, such as https://docs.google.com/spreadsheets/d/{id}/edit.");
+        }
+
+        var exportUrl = "https://docs.google.com/spreadsheets/d/" + spreadsheetId + "/export?format=csv";
+        var gid = ExtractSheetGid(sheetUrl);
+        if (gid.HasValue)
+        {
+            exportUrl += "&gid=" + gid.Value.ToString();
+        }
+
+        using var drive = CreateReadOnlyDriveService();
+        using var response = await drive.HttpClient.GetAsync(exportUrl);
+        var body = await response.Content.ReadAsStringAsync();
+        if (!response.IsSuccessStatusCode || LooksLikeHtml(body))
+        {
+            throw new InvalidOperationException(
+                "Unable to read the Google Sheet. Share the sheet with the API service account and confirm GoogleSheet:Url is a Google Sheets link.");
+        }
+
+        var table = ParseCsv(body);
+        if (table.Count == 0)
+        {
+            return new List<GoogleSheetRow>();
+        }
+
+        var headerIndex = IndexHeaders(table[0]);
+        string[] requiredColumns = ["Project", "Main Content Type", "Description", "Credits", "Topic Category"];
+        var missing = requiredColumns.Where(name => !headerIndex.ContainsKey(name)).ToList();
+        if (missing.Count > 0)
+        {
+            throw new InvalidOperationException("The sheet is missing columns: " + string.Join(", ", missing) + ".");
+        }
+
+        var rows = new List<GoogleSheetRow>();
+        for (var i = 1; i < table.Count; i++)
+        {
+            var source = table[i];
+            var row = new GoogleSheetRow
+            {
+                Project = Cell(source, headerIndex["Project"]),
+                MainContentType = Cell(source, headerIndex["Main Content Type"]),
+                Description = Cell(source, headerIndex["Description"]),
+                Credits = Cell(source, headerIndex["Credits"]),
+                TopicCategory = Cell(source, headerIndex["Topic Category"])
+            };
+
+            if (string.IsNullOrWhiteSpace(row.Project) &&
+                string.IsNullOrWhiteSpace(row.MainContentType) &&
+                string.IsNullOrWhiteSpace(row.Description) &&
+                string.IsNullOrWhiteSpace(row.Credits) &&
+                string.IsNullOrWhiteSpace(row.TopicCategory))
+            {
+                continue;
+            }
+
+            rows.Add(row);
+        }
+
+        return rows;
+    }
+
+    public static string? ExtractSpreadsheetId(string sheetUrlOrId)
+    {
+        if (string.IsNullOrWhiteSpace(sheetUrlOrId))
+        {
+            return null;
+        }
+
+        var value = sheetUrlOrId.Trim();
+        var spreadsheetMatch = Regex.Match(value, @"/spreadsheets/d/([a-zA-Z0-9_-]+)");
+        if (spreadsheetMatch.Success)
+        {
+            return spreadsheetMatch.Groups[1].Value;
+        }
+
+        if (!value.Contains('/') && Regex.IsMatch(value, @"^[a-zA-Z0-9_-]+$"))
+        {
+            return value;
+        }
+
+        return null;
+    }
+
+    private static int? ExtractSheetGid(string sheetUrl)
+    {
+        var match = Regex.Match(sheetUrl, @"[#&?]gid=(\d+)");
+        if (!match.Success || !int.TryParse(match.Groups[1].Value, out var gid))
+        {
+            return null;
+        }
+
+        return gid;
+    }
+
+    private static Dictionary<string, int> IndexHeaders(IReadOnlyList<string> headers)
+    {
+        var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < headers.Count; i++)
+        {
+            var key = Regex.Replace(headers[i].Trim().TrimStart('\uFEFF'), @"\s+", " ");
+            if (key.Length > 0 && !map.ContainsKey(key))
+            {
+                map[key] = i;
+            }
+        }
+
+        return map;
+    }
+
+    private static string Cell(IReadOnlyList<string> row, int index)
+    {
+        if (index < 0 || index >= row.Count)
+        {
+            return string.Empty;
+        }
+
+        return row[index].Trim();
+    }
+
+    private static bool LooksLikeHtml(string body)
+    {
+        var trimmed = body.TrimStart('\uFEFF', ' ', '\t', '\r', '\n');
+        return trimmed.StartsWith("<", StringComparison.Ordinal);
+    }
+
+    private static List<List<string>> ParseCsv(string csv)
+    {
+        var rows = new List<List<string>>();
+        var row = new List<string>();
+        var field = new StringBuilder();
+        var inQuotes = false;
+
+        for (var i = 0; i < csv.Length; i++)
+        {
+            var current = csv[i];
+            if (inQuotes)
+            {
+                if (current == '"')
+                {
+                    if (i + 1 < csv.Length && csv[i + 1] == '"')
+                    {
+                        field.Append('"');
+                        i++;
+                    }
+                    else
+                    {
+                        inQuotes = false;
+                    }
+                }
+                else
+                {
+                    field.Append(current);
+                }
+
+                continue;
+            }
+
+            if (current == '"')
+            {
+                inQuotes = true;
+            }
+            else if (current == ',')
+            {
+                row.Add(field.ToString());
+                field.Clear();
+            }
+            else if (current == '\n')
+            {
+                row.Add(field.ToString());
+                field.Clear();
+                rows.Add(row);
+                row = new List<string>();
+            }
+            else if (current != '\r')
+            {
+                field.Append(current);
+            }
+        }
+
+        if (field.Length > 0 || row.Count > 0)
+        {
+            row.Add(field.ToString());
+            rows.Add(row);
+        }
+
+        if (rows.Count > 0 && rows[^1].All(string.IsNullOrEmpty))
+        {
+            rows.RemoveAt(rows.Count - 1);
+        }
+
+        return rows;
+    }
 }

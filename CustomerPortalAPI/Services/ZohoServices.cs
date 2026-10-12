@@ -559,7 +559,7 @@ namespace CustomerPortalAPI.Services
 
                     var query = new
                     {
-                        select_query = $"select id, Case_Number, Subject, Status, Case_Open_Date, Case_Closed_Date, Type, Case_Reason, Created_Time, Account_Name from Cases where (Account_Name.id = {companyId} )"
+                        select_query = $"select id, Case_Number, Subject, Status, Case_Open_Date, Case_Closed_Date, Type, Case_Reason, Reported_By, Email, Created_Time, Account_Name from Cases where (Account_Name.id = {companyId} )"
                     };
 
                     var jsonContent = new StringContent(
@@ -941,7 +941,9 @@ namespace CustomerPortalAPI.Services
                                 Description = caseObj.Description,
                                 Internal_Comments = "",
                                 Priority = "Medium",
-                                Reported_By = "",
+                                Reported_By = string.IsNullOrWhiteSpace(caseObj.Reported_By)
+                                    ? caseObj.Email
+                                    : caseObj.Reported_By.Trim(),
                                 Case_Origin = "",
                                 Case_Reason = "",
                                 Subject = caseObj.Subject,
