@@ -585,7 +585,7 @@ public class GoogleServices
         }
 
         var headerIndex = IndexHeaders(table[0]);
-        string[] requiredColumns = ["Project", "Main Content Type", "Description", "Credits", "Topic Category"];
+        string[] requiredColumns = ["Project", "Main Content Type", "Description", "Credits"];
         var missing = requiredColumns.Where(name => !headerIndex.ContainsKey(name)).ToList();
         if (missing.Count > 0)
         {
@@ -598,11 +598,11 @@ public class GoogleServices
             var source = table[i];
             var row = new GoogleSheetRow
             {
-                Project = Cell(source, headerIndex["Project"]),
-                MainContentType = Cell(source, headerIndex["Main Content Type"]),
-                Description = Cell(source, headerIndex["Description"]),
-                Credits = Cell(source, headerIndex["Credits"]),
-                TopicCategory = Cell(source, headerIndex["Topic Category"])
+                Project = CellByHeader(source, headerIndex, "Project"),
+                MainContentType = CellByHeader(source, headerIndex, "Main Content Type"),
+                Description = CellByHeader(source, headerIndex, "Description"),
+                Credits = CellByHeader(source, headerIndex, "Credits"),
+                TopicCategory = CellByHeader(source, headerIndex, "Topic Category")
             };
 
             if (string.IsNullOrWhiteSpace(row.Project) &&
@@ -666,6 +666,16 @@ public class GoogleServices
         }
 
         return map;
+    }
+
+    private static string CellByHeader(IReadOnlyList<string> row, IReadOnlyDictionary<string, int> headers, string name)
+    {
+        if (!headers.TryGetValue(name, out var index))
+        {
+            return string.Empty;
+        }
+
+        return Cell(row, index);
     }
 
     private static string Cell(IReadOnlyList<string> row, int index)
