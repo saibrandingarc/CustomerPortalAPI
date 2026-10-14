@@ -182,6 +182,34 @@ public class ZohoController : ControllerBase
         return Ok(deliverables);
     }
 
+    [HttpGet("zoho/deliverables/{companyId}/year")]
+    public async Task<IActionResult> GetDeliverablesByAccountAndYear(string companyId, [FromQuery] int? year)
+    {
+        if (string.IsNullOrWhiteSpace(companyId) || !long.TryParse(companyId, out _))
+        {
+            return BadRequest(new { message = "A numeric Zoho account id is required." });
+        }
+
+        var targetYear = year ?? DateTime.Now.Year;
+        if (targetYear < 2000 || targetYear > 2100)
+        {
+            return BadRequest(new { message = "Year must be between 2000 and 2100." });
+        }
+
+        var deliverables = await _zohoOAuthService.GetZohoDeliverablesByAccountAndYearAsync(companyId, targetYear);
+        if (deliverables == null)
+        {
+            return StatusCode(StatusCodes.Status502BadGateway, new { message = "Zoho CRM token is invalid." });
+        }
+
+        return new ContentResult
+        {
+            StatusCode = deliverables.Value.StatusCode,
+            Content = deliverables.Value.Body,
+            ContentType = "application/json"
+        };
+    }
+
     [HttpGet("zoho/deliverables/{companyId}/{blockId}/{status}")]
     public async Task<IActionResult> GetDeliverablesByBlock(string companyId, string blockId, string status)
     {

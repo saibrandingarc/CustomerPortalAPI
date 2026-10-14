@@ -828,6 +828,83 @@ namespace CustomerPortalAPI.Services
             }
         }
 
+        public async Task<(int StatusCode, string Body)?> GetZohoDeliverablesByAccountAndYearAsync(string companyId, int year)
+        {
+            var accessToken = await GetValidTokenAsync();
+            if (accessToken == "Invalid Token" || string.IsNullOrWhiteSpace(accessToken))
+            {
+                return null;
+            }
+
+            var criteria = $"((Account.id:equals:{companyId})AND(Block:starts_with:{year}))";
+            var records = new JArray();
+            var moreRecords = false;
+
+            for (var page = 1; page <= 10; page++)
+            {
+                var request = new HttpRequestMessage(
+                    HttpMethod.Get,
+                    $"https://www.zohoapis.com/crm/v7/Deliverables_V2/search?criteria={criteria}&per_page=200&page={page}"
+                )
+                {
+                    Headers = { { "Authorization", $"Bearer {accessToken}" } }
+                };
+
+                var response = await _httpClient.SendAsync(request);
+                if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
+                {
+                    break;
+                }
+
+                var body = await response.Content.ReadAsStringAsync();
+                if (!response.IsSuccessStatusCode)
+                {
+                    _logger.LogError(
+                        "Zoho deliverables search failed for account {AccountId} year {Year} with status {Status}.",
+                        companyId,
+                        year,
+                        (int)response.StatusCode);
+                    return ((int)response.StatusCode, string.IsNullOrWhiteSpace(body)
+                        ? JsonConvert.SerializeObject(new { message = "Zoho CRM request failed." })
+                        : body);
+                }
+
+                var json = JObject.Parse(body);
+                if (json["data"] is JArray pageData)
+                {
+                    foreach (var item in pageData)
+                    {
+                        records.Add(item);
+                    }
+                }
+
+                moreRecords = json["info"]?["more_records"]?.Value<bool>() == true;
+                if (!moreRecords)
+                {
+                    break;
+                }
+            }
+
+            var sorted = new JArray(
+                records
+                    .OrderBy(record => record["Block"]?.ToString(), StringComparer.Ordinal)
+                    .ThenBy(record => record["Name"]?.ToString(), StringComparer.Ordinal));
+
+            var result = new JObject
+            {
+                ["data"] = sorted,
+                ["info"] = new JObject
+                {
+                    ["count"] = sorted.Count,
+                    ["more_records"] = moreRecords,
+                    ["year"] = year,
+                    ["account_id"] = companyId
+                }
+            };
+
+            return (StatusCodes.Status200OK, AddContentFileGoogleUrlToDeliverables(result.ToString(Formatting.None)));
+        }
+
         public async Task<string> GetZohoDeliverablesByCompanyAndBlockAsync(string companyId, string blockId, string status)
         {
             var accessToken = await GetValidTokenAsync();
