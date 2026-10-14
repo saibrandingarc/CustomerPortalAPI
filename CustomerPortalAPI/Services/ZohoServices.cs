@@ -737,6 +737,77 @@ namespace CustomerPortalAPI.Services
             }
         }
 
+        public async Task<(int StatusCode, string Body)?> GetZohoCaseTimelineAsync(string caseId)
+        {
+            if (string.IsNullOrWhiteSpace(caseId) || !caseId.All(char.IsDigit))
+            {
+                return (400, "{\"message\":\"Case id must be a Zoho record id.\"}");
+            }
+
+            var accessToken = await GetValidTokenAsync();
+            if (accessToken == "Invalid Token" || string.IsNullOrWhiteSpace(accessToken))
+            {
+                return null;
+            }
+
+            var combined = new JArray();
+            string? pageToken = null;
+            var moreRecords = true;
+
+            for (var page = 0; page < 5 && moreRecords; page++)
+            {
+                var url =
+                    "https://www.zohoapis.com/crm/v8/Cases/" + caseId +
+                    "/__timeline?sort_by=audited_time&sort_order=desc" +
+                    "&include_inner_details=field_history.field_label,field_history.data_type";
+                if (!string.IsNullOrEmpty(pageToken))
+                {
+                    url += "&page_token=" + Uri.EscapeDataString(pageToken);
+                }
+
+                var request = new HttpRequestMessage(HttpMethod.Get, url)
+                {
+                    Headers = { { "Authorization", $"Bearer {accessToken}" } }
+                };
+
+                var response = await _httpClient.SendAsync(request);
+                if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
+                {
+                    break;
+                }
+
+                var body = await response.Content.ReadAsStringAsync();
+                if (!response.IsSuccessStatusCode)
+                {
+                    return ((int)response.StatusCode, string.IsNullOrWhiteSpace(body) ? "{}" : body);
+                }
+
+                var payload = JObject.Parse(string.IsNullOrWhiteSpace(body) ? "{}" : body);
+                if (payload["__timeline"] is JArray entries)
+                {
+                    foreach (var entry in entries)
+                    {
+                        combined.Add(entry);
+                    }
+                }
+
+                var info = payload["info"] as JObject;
+                pageToken = info?["next_page_token"]?.ToString();
+                moreRecords = info?["more_records"]?.Value<bool>() == true && !string.IsNullOrEmpty(pageToken);
+            }
+
+            var result = new JObject
+            {
+                ["__timeline"] = combined,
+                ["info"] = new JObject
+                {
+                    ["count"] = combined.Count,
+                    ["more_records"] = false
+                }
+            };
+            return (200, result.ToString(Formatting.None));
+        }
+
         public async Task<string> GetZohoDeliverablesByIdAsync(string deliverableId)
         {
             var accessToken = await GetValidTokenAsync();

@@ -86,6 +86,23 @@ public class ZohoController : ControllerBase
         return Ok(cases);
     }
 
+    [HttpGet("zoho/case/{companyId}/{caseNumber}/timeline")]
+    public async Task<IActionResult> GetCaseTimeline(string companyId, string caseNumber)
+    {
+        var timeline = await _zohoOAuthService.GetZohoCaseTimelineAsync(caseNumber);
+        if (timeline == null)
+        {
+            return StatusCode(502, new { message = "Unable to reach Zoho." });
+        }
+
+        return new ContentResult
+        {
+            Content = timeline.Value.Body,
+            ContentType = "application/json",
+            StatusCode = timeline.Value.StatusCode
+        };
+    }
+
     [HttpGet("zoho/website/{companyId}")]
     public async Task<IActionResult> GetWebsiteByCompany(string companyId)
     {
