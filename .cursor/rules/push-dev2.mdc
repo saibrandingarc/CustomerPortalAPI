@@ -1,0 +1,13 @@
+---
+description: Push CustomerPortalAPI changes to the dev2 branch
+alwaysApply: true
+---
+
+# CustomerPortalAPI git target
+
+Push this repository to the `dev2` branch on the `CustomerPortalAPI` remote (`https://github.com/saibrandingarc/CustomerPortalAPI.git`).
+
+- After API changes, commit the source files and push `dev2`.
+- Confirm the push by comparing local `dev2` with `CustomerPortalAPI/dev2`. They must point at the same commit.
+- Do not commit secrets or build output: `appsettings.json`, credential JSON, and `publish.zip`.
+- Do not push `dev` or `main` unless the user explicitly asks.
