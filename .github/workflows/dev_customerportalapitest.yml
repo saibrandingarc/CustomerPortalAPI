@@ -6,7 +6,7 @@ name: Build and deploy ASP.Net Core app to Azure Web App - CustomerPortalAPITest
 on:
   push:
     branches:
-      - dev
+      - dev2
   workflow_dispatch:
 
 jobs:
