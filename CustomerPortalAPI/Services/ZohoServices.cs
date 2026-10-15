@@ -1250,25 +1250,17 @@ namespace CustomerPortalAPI.Services
                 return (409, "{\"message\":\"Context can only be added while the case is open.\"}");
             }
 
-            var notes = new JArray();
-            if (record["Email_Notes1"] is JArray existing)
+            var description = record["Description"]?.Type == JTokenType.Null
+                ? ""
+                : record["Description"]?.ToString() ?? "";
+            var entry = ContextTimestamp() + "\n" + context;
+            var updatedDescription = string.IsNullOrWhiteSpace(description)
+                ? entry
+                : description.TrimEnd() + "\n\n" + entry;
+            if (updatedDescription.Length > 32000)
             {
-                foreach (var note in existing.OfType<JObject>())
-                {
-                    var kept = new JObject();
-                    if (note["id"] != null) kept["id"] = note["id"];
-                    if (note["Comment_Type"] != null) kept["Comment_Type"] = note["Comment_Type"];
-                    if (note["Comments"] != null) kept["Comments"] = note["Comments"];
-                    if (note["Comment_Date"] != null) kept["Comment_Date"] = note["Comment_Date"];
-                    notes.Add(kept);
-                }
+                return (400, "{\"message\":\"Case description is too long to add more context.\"}");
             }
-            notes.Add(new JObject
-            {
-                ["Comment_Type"] = "Context",
-                ["Comments"] = context,
-                ["Comment_Date"] = DateTime.Now.ToString("yyyy-MM-dd")
-            });
 
             var update = new JObject
             {
@@ -1276,7 +1268,7 @@ namespace CustomerPortalAPI.Services
                 {
                     new JObject
                     {
-                        ["Email_Notes1"] = notes
+                        ["Description"] = updatedDescription
                     }
                 }
             };
@@ -1294,6 +1286,29 @@ namespace CustomerPortalAPI.Services
             }
 
             return (200, string.IsNullOrWhiteSpace(body) ? "{}" : body);
+        }
+
+        private static string ContextTimestamp()
+        {
+            TimeZoneInfo zone;
+            try
+            {
+                zone = TimeZoneInfo.FindSystemTimeZoneById("Asia/Kolkata");
+            }
+            catch (TimeZoneNotFoundException)
+            {
+                try
+                {
+                    zone = TimeZoneInfo.FindSystemTimeZoneById("India Standard Time");
+                }
+                catch (TimeZoneNotFoundException)
+                {
+                    zone = TimeZoneInfo.Local;
+                }
+            }
+
+            var local = TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, zone);
+            return local.ToString("MMM d, yyyy h:mm tt", System.Globalization.CultureInfo.InvariantCulture);
         }
 
         public async Task<string> UpdateZohoCasesAsync(string jsonPayload, string id)
