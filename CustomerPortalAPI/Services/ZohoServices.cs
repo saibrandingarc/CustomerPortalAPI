@@ -1200,6 +1200,102 @@ namespace CustomerPortalAPI.Services
             response.EnsureSuccessStatusCode();
         }
 
+        public async Task<(int StatusCode, string Body)?> AddZohoCaseContextAsync(string companyId, string caseId, string? comments)
+        {
+            if (string.IsNullOrWhiteSpace(companyId) || !companyId.All(char.IsDigit) ||
+                string.IsNullOrWhiteSpace(caseId) || !caseId.All(char.IsDigit))
+            {
+                return (400, "{\"message\":\"A numeric Zoho account id and case id are required.\"}");
+            }
+
+            var context = comments?.Trim() ?? "";
+            if (string.IsNullOrWhiteSpace(context))
+            {
+                return (400, "{\"message\":\"Context is required.\"}");
+            }
+
+            if (context.Length > 5000)
+            {
+                return (400, "{\"message\":\"Context must be 5000 characters or fewer.\"}");
+            }
+
+            var accessToken = await GetValidTokenAsync();
+            if (accessToken == "Invalid Token" || string.IsNullOrWhiteSpace(accessToken))
+            {
+                return null;
+            }
+
+            var current = await GetZohoCaseByIdAsync(companyId, caseId);
+            if (string.IsNullOrWhiteSpace(current) || !current.TrimStart().StartsWith("{"))
+            {
+                return (404, "{\"message\":\"Case was not found.\"}");
+            }
+
+            var payload = JObject.Parse(current);
+            var record = payload["data"]?.First as JObject;
+            if (record == null)
+            {
+                return (404, "{\"message\":\"Case was not found.\"}");
+            }
+
+            var accountId = record["Account_Name"]?["id"]?.ToString();
+            if (!string.Equals(accountId, companyId, StringComparison.Ordinal))
+            {
+                return (404, "{\"message\":\"Case was not found.\"}");
+            }
+
+            var status = record["Status"]?.ToString() ?? "";
+            if (!string.Equals(status, "New", StringComparison.OrdinalIgnoreCase))
+            {
+                return (409, "{\"message\":\"Context can only be added while the case is open.\"}");
+            }
+
+            var notes = new JArray();
+            if (record["Email_Notes1"] is JArray existing)
+            {
+                foreach (var note in existing.OfType<JObject>())
+                {
+                    var kept = new JObject();
+                    if (note["id"] != null) kept["id"] = note["id"];
+                    if (note["Comment_Type"] != null) kept["Comment_Type"] = note["Comment_Type"];
+                    if (note["Comments"] != null) kept["Comments"] = note["Comments"];
+                    if (note["Comment_Date"] != null) kept["Comment_Date"] = note["Comment_Date"];
+                    notes.Add(kept);
+                }
+            }
+            notes.Add(new JObject
+            {
+                ["Comment_Type"] = "Context",
+                ["Comments"] = context,
+                ["Comment_Date"] = DateTime.Now.ToString("yyyy-MM-dd")
+            });
+
+            var update = new JObject
+            {
+                ["data"] = new JArray
+                {
+                    new JObject
+                    {
+                        ["Email_Notes1"] = notes
+                    }
+                }
+            };
+
+            var request = new HttpRequestMessage(HttpMethod.Put, "https://www.zohoapis.com/crm/v7/Cases/" + caseId)
+            {
+                Headers = { { "Authorization", $"Bearer {accessToken}" } },
+                Content = new StringContent(update.ToString(Formatting.None), Encoding.UTF8, "application/json")
+            };
+            var response = await _httpClient.SendAsync(request);
+            var body = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
+            {
+                return ((int)response.StatusCode, string.IsNullOrWhiteSpace(body) ? "{}" : body);
+            }
+
+            return (200, string.IsNullOrWhiteSpace(body) ? "{}" : body);
+        }
+
         public async Task<string> UpdateZohoCasesAsync(string jsonPayload, string id)
         {
             var accessToken = await GetValidTokenAsync();

@@ -103,6 +103,23 @@ public class ZohoController : ControllerBase
         };
     }
 
+    [HttpPost("zoho/case/{companyId}/{caseNumber}/context")]
+    public async Task<IActionResult> AddCaseContext(string companyId, string caseNumber, [FromBody] CaseContextRequest? request)
+    {
+        var result = await _zohoOAuthService.AddZohoCaseContextAsync(companyId, caseNumber, request?.Comments);
+        if (result == null)
+        {
+            return StatusCode(502, new { message = "Unable to reach Zoho." });
+        }
+
+        return new ContentResult
+        {
+            Content = result.Value.Body,
+            ContentType = "application/json",
+            StatusCode = result.Value.StatusCode
+        };
+    }
+
     [HttpGet("zoho/website/{companyId}")]
     public async Task<IActionResult> GetWebsiteByCompany(string companyId)
     {

@@ -42,5 +42,10 @@ namespace CustomerPortalAPI.Models
     {
         public List<CaseModel> data { get; set; }
     }
+
+    public class CaseContextRequest
+    {
+        public string? Comments { get; set; }
+    }
 }
 
