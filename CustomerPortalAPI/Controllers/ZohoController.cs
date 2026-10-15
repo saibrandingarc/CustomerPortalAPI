@@ -112,11 +112,29 @@ public class ZohoController : ControllerBase
             return StatusCode(502, new { message = "Unable to reach Zoho." });
         }
 
+        if (result.StatusCode == 200)
+        {
+            try
+            {
+                await _emailService.SendCaseContextUpdateAsync(result.CaseId, result.CaseName, result.Status, result.Context);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Case context email failed: {ex.Message}");
+                return new ContentResult
+                {
+                    Content = "{\"message\":\"Context was saved, but the support email could not be sent.\"}",
+                    ContentType = "application/json",
+                    StatusCode = 502
+                };
+            }
+        }
+
         return new ContentResult
         {
-            Content = result.Value.Body,
+            Content = result.Body,
             ContentType = "application/json",
-            StatusCode = result.Value.StatusCode
+            StatusCode = result.StatusCode
         };
     }
 

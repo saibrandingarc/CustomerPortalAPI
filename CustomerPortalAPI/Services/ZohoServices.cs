@@ -1200,23 +1200,29 @@ namespace CustomerPortalAPI.Services
             response.EnsureSuccessStatusCode();
         }
 
-        public async Task<(int StatusCode, string Body)?> AddZohoCaseContextAsync(string companyId, string caseId, string? comments)
+        public async Task<CaseContextUpdateResult?> AddZohoCaseContextAsync(string companyId, string caseId, string? comments)
         {
+            CaseContextUpdateResult Fail(int statusCode, string body) => new()
+            {
+                StatusCode = statusCode,
+                Body = body
+            };
+
             if (string.IsNullOrWhiteSpace(companyId) || !companyId.All(char.IsDigit) ||
                 string.IsNullOrWhiteSpace(caseId) || !caseId.All(char.IsDigit))
             {
-                return (400, "{\"message\":\"A numeric Zoho account id and case id are required.\"}");
+                return Fail(400, "{\"message\":\"A numeric Zoho account id and case id are required.\"}");
             }
 
             var context = comments?.Trim() ?? "";
             if (string.IsNullOrWhiteSpace(context))
             {
-                return (400, "{\"message\":\"Context is required.\"}");
+                return Fail(400, "{\"message\":\"Context is required.\"}");
             }
 
             if (context.Length > 5000)
             {
-                return (400, "{\"message\":\"Context must be 5000 characters or fewer.\"}");
+                return Fail(400, "{\"message\":\"Context must be 5000 characters or fewer.\"}");
             }
 
             var accessToken = await GetValidTokenAsync();
@@ -1228,27 +1234,30 @@ namespace CustomerPortalAPI.Services
             var current = await GetZohoCaseByIdAsync(companyId, caseId);
             if (string.IsNullOrWhiteSpace(current) || !current.TrimStart().StartsWith("{"))
             {
-                return (404, "{\"message\":\"Case was not found.\"}");
+                return Fail(404, "{\"message\":\"Case was not found.\"}");
             }
 
             var payload = JObject.Parse(current);
             var record = payload["data"]?.First as JObject;
             if (record == null)
             {
-                return (404, "{\"message\":\"Case was not found.\"}");
+                return Fail(404, "{\"message\":\"Case was not found.\"}");
             }
 
             var accountId = record["Account_Name"]?["id"]?.ToString();
             if (!string.Equals(accountId, companyId, StringComparison.Ordinal))
             {
-                return (404, "{\"message\":\"Case was not found.\"}");
+                return Fail(404, "{\"message\":\"Case was not found.\"}");
             }
 
             var status = record["Status"]?.ToString() ?? "";
             if (!string.Equals(status, "New", StringComparison.OrdinalIgnoreCase))
             {
-                return (409, "{\"message\":\"Context can only be added while the case is open.\"}");
+                return Fail(409, "{\"message\":\"Context can only be added while the case is open.\"}");
             }
+
+            var caseNumber = record["Case_Number"]?.ToString();
+            var caseName = record["Subject"]?.ToString() ?? "";
 
             var description = record["Description"]?.Type == JTokenType.Null
                 ? ""
@@ -1259,7 +1268,7 @@ namespace CustomerPortalAPI.Services
                 : description.TrimEnd() + "\n\n" + entry;
             if (updatedDescription.Length > 32000)
             {
-                return (400, "{\"message\":\"Case description is too long to add more context.\"}");
+                return Fail(400, "{\"message\":\"Case description is too long to add more context.\"}");
             }
 
             var update = new JObject
@@ -1282,10 +1291,18 @@ namespace CustomerPortalAPI.Services
             var body = await response.Content.ReadAsStringAsync();
             if (!response.IsSuccessStatusCode)
             {
-                return ((int)response.StatusCode, string.IsNullOrWhiteSpace(body) ? "{}" : body);
+                return Fail((int)response.StatusCode, string.IsNullOrWhiteSpace(body) ? "{}" : body);
             }
 
-            return (200, string.IsNullOrWhiteSpace(body) ? "{}" : body);
+            return new CaseContextUpdateResult
+            {
+                StatusCode = 200,
+                Body = string.IsNullOrWhiteSpace(body) ? "{}" : body,
+                CaseId = string.IsNullOrWhiteSpace(caseNumber) ? caseId : caseNumber,
+                CaseName = caseName,
+                Status = status,
+                Context = context
+            };
         }
 
         private static string ContextTimestamp()

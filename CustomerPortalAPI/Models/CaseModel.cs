@@ -47,5 +47,15 @@ namespace CustomerPortalAPI.Models
     {
         public string? Comments { get; set; }
     }
+
+    public class CaseContextUpdateResult
+    {
+        public int StatusCode { get; set; }
+        public string Body { get; set; } = "{}";
+        public string CaseId { get; set; } = "";
+        public string CaseName { get; set; } = "";
+        public string Status { get; set; } = "";
+        public string Context { get; set; } = "";
+    }
 }
 

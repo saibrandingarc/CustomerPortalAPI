@@ -679,6 +679,45 @@ namespace CustomerPortalAPI.Services
             }
         }
 
+        public async Task SendCaseContextUpdateAsync(string caseId, string caseName, string status, string context, bool isHtml = true)
+        {
+            try
+            {
+                string GmailHost = _configuration["emailsendconfig:GmailImapHost"];
+                int GmailImapPort = int.Parse(_configuration["emailsendconfig:GmailImapPort"]);
+                string GmailUsername = _configuration["emailsendconfig:GmailUsername"];
+                string GmailAppPassword = _configuration["emailsendconfig:GmailAppPassword"];
+                const string toEmail = "support@brandingarc.com";
+
+                var safeId = WebUtility.HtmlEncode(caseId);
+                var safeName = WebUtility.HtmlEncode(string.IsNullOrWhiteSpace(caseName) ? "Untitled case" : caseName);
+                var safeStatus = WebUtility.HtmlEncode(string.IsNullOrWhiteSpace(status) ? "New" : status);
+                var safeContext = WebUtility.HtmlEncode(context).Replace("\r\n", "\n").Replace("\n", "<br/>");
+                var message =
+                    "A case was updated with additional context.<br/><br/>" +
+                    $"Case ID: {safeId}<br/>" +
+                    $"Case Name: {safeName}<br/>" +
+                    $"Status: {safeStatus}<br/><br/>" +
+                    $"Update:<br/>{safeContext}";
+
+                var mimeMessage = new MimeMessage();
+                mimeMessage.From.Add(new MailboxAddress("Customer Portal", GmailUsername));
+                mimeMessage.To.Add(MailboxAddress.Parse(toEmail));
+                mimeMessage.Subject = $"Case update: {caseName} ({caseId})";
+                mimeMessage.Body = new TextPart(isHtml ? "html" : "plain") { Text = message };
+
+                using var smtp = new SmtpClient();
+                await smtp.ConnectAsync(GmailHost, GmailImapPort, SecureSocketOptions.StartTls);
+                await smtp.AuthenticateAsync(GmailUsername, GmailAppPassword);
+                await smtp.SendAsync(mimeMessage);
+                await smtp.DisconnectAsync(true);
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Failed to send case context email: {ex.Message}", ex);
+            }
+        }
+
         public async Task SendFailedLoginAlertAsync(string toEmail, int failedAttempts, int withinMinutes, int lockoutMinutes = 15, bool isHtml = true)
         {
             try
