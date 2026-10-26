@@ -374,6 +374,47 @@ namespace CustomerPortalAPI.Services
             return accessToken;
         }
 
+        public async Task<string> GetZohoContactsByCompanyAsync(string companyId)
+        {
+            var accessToken = await GetValidTokenAsync();
+            if (accessToken == "Invalid Token" || string.IsNullOrWhiteSpace(companyId))
+            {
+                return null;
+            }
+
+            try
+            {
+                var fields = "Full_Name,First_Name,Last_Name,Email,Phone,Mobile,Title,Account_Name";
+                var url = "https://www.zohoapis.com/crm/v7/Accounts/"
+                    + Uri.EscapeDataString(companyId)
+                    + "/Contacts?fields=" + fields;
+
+                var request = new HttpRequestMessage(HttpMethod.Get, url)
+                {
+                    Headers = { { "Authorization", $"Bearer {accessToken}" } }
+                };
+
+                var response = await _httpClient.SendAsync(request);
+                if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
+                {
+                    return "{\"data\":[]}";
+                }
+
+                var body = await response.Content.ReadAsStringAsync();
+                if (!response.IsSuccessStatusCode)
+                {
+                    return body;
+                }
+
+                return string.IsNullOrWhiteSpace(body) ? "{\"data\":[]}" : body;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"An error occurred: {ex.Message}");
+                return ex.Message;
+            }
+        }
+
         public async Task<string> GetZohoContactByEmailAsync(string email)
         {
             var accessToken = await GetValidTokenAsync();

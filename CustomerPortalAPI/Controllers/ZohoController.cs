@@ -72,6 +72,18 @@ public class ZohoController : ControllerBase
         return Ok(cases);
     }
 
+    [HttpGet("zoho/contacts/{companyId}")]
+    public async Task<IActionResult> GetContactsByCompany(string companyId)
+    {
+        var contacts = await _zohoOAuthService.GetZohoContactsByCompanyAsync(companyId);
+        if (contacts == null)
+        {
+            return StatusCode(502, new { message = "Unable to reach Zoho." });
+        }
+
+        return Content(contacts, "application/json");
+    }
+
     [HttpGet("zoho/contact/{email}")]
     public async Task<IActionResult> GetContactByEmail(string email)
     {
