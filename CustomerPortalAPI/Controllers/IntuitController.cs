@@ -148,19 +148,18 @@ public class IntuitController : ControllerBase
         return File(pdfStream, "application/pdf", $"Invoice_{invoiceid}.pdf");
     }
 
-}
-
-static string? JsonText(JsonElement element, string name)
-{
-    if (!element.TryGetProperty(name, out var value)) return null;
-    return value.ValueKind switch
+    static string? JsonText(JsonElement element, string name)
     {
-        JsonValueKind.String => value.GetString(),
-        JsonValueKind.Number => value.GetRawText(),
-        JsonValueKind.True => "true",
-        JsonValueKind.False => "false",
-        _ => null,
-    };
+        if (!element.TryGetProperty(name, out var value)) return null;
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.Number => value.GetRawText(),
+            JsonValueKind.True => "true",
+            JsonValueKind.False => "false",
+            _ => null,
+        };
+    }
 }
 
 // Helper class for token response
