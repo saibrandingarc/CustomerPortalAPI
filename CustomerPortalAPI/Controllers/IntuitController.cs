@@ -73,6 +73,11 @@ public class IntuitController : ControllerBase
     {
         var companyId = _configuration["intuit:realmid"];
         var lookup = await _quickBookServices.getCustomerId(companyId, CustomerName);
+        if (lookup.Contains("AuthenticationFailed", StringComparison.OrdinalIgnoreCase)
+            || lookup.Contains("Reconnect QuickBooks", StringComparison.OrdinalIgnoreCase))
+        {
+            return StatusCode(401, new { message = "QuickBooks rejected the saved sign-in. Open Intuit connect and authorize the app again." });
+        }
         try
         {
             var document = JsonDocument.Parse(lookup);

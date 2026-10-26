@@ -216,18 +216,25 @@ namespace CustomerPortalAPI.Services
                 //client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", encodedBytes);
                 //client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 // Send the POST request
+                var authHeader = Convert.ToBase64String(Encoding.UTF8.GetBytes($"{ClientId}:{ClientSecret}"));
+                client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Basic", authHeader);
+                client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
                 var response = await client.PostAsync(TokenUrl, body);
 
                 // Check if the request was successful
                 if (response.IsSuccessStatusCode)
                 {
                     var content = await response.Content.ReadAsStringAsync();
-                    var jsonResponse = JsonConvert.DeserializeObject<Dictionary<string, string>>(content);
-                    var accessToken = await AddQuickbookSettingsAsync(jsonResponse);
-                    // Extract the access token from the response
-                    AccessToken = jsonResponse["access_token"];
-                    Console.WriteLine(AccessToken);
-                    return AccessToken;
+                    var json = JObject.Parse(content);
+                    var jsonResponse = new Dictionary<string, string>
+                    {
+                        ["access_token"] = json.Value<string>("access_token") ?? "",
+                        ["refresh_token"] = json.Value<string>("refresh_token") ?? refreshToken,
+                        ["expires_in"] = json["expires_in"]?.ToString() ?? "3600",
+                    };
+                    if (string.IsNullOrWhiteSpace(jsonResponse["access_token"])) return content;
+                    await AddQuickbookSettingsAsync(jsonResponse);
+                    return jsonResponse["access_token"];
                 }
 
                 // Handle failure
@@ -331,7 +338,7 @@ namespace CustomerPortalAPI.Services
             }
         }
 
-        public async Task<string> GetCustomer(string customerId)
+        private async Task<string> QuickBooksGet(string url)
         {
             var existData = await _context.Settings
                     .Where(p => p.tokenFrom == "quickbooks")
@@ -345,63 +352,49 @@ namespace CustomerPortalAPI.Services
                 accessToken = await RefreshToken();
             }
 
-            var companyId = _configuration["intuit:realmid"];
-            var apiBaseUrl = $"https://quickbooks.api.intuit.com/v3/company/{companyId}/customer/{Uri.EscapeDataString(customerId)}?minorversion=75";
+            var body = await SendBearerGet(url, accessToken);
+            if (!IsAuthFailure(body)) return body;
 
+            accessToken = await RefreshToken();
+            if (string.IsNullOrWhiteSpace(accessToken) || accessToken.TrimStart().StartsWith("{") || accessToken.StartsWith("Error"))
+            {
+                return "QuickBooks rejected the saved sign-in. Reconnect QuickBooks, then try again.";
+            }
+
+            return await SendBearerGet(url, accessToken);
+        }
+
+        private static bool IsAuthFailure(string body)
+        {
+            return body.Contains("AuthenticationFailed", StringComparison.OrdinalIgnoreCase)
+                || body.Contains("\"code\":\"3200\"", StringComparison.OrdinalIgnoreCase)
+                || body.Contains("statusCode=401", StringComparison.OrdinalIgnoreCase);
+        }
+
+        private static async Task<string> SendBearerGet(string url, string accessToken)
+        {
             using var client = new HttpClient();
             client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
             client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            var response = await client.GetAsync(apiBaseUrl);
-            return await response.Content.ReadAsStringAsync();
+            var response = await client.GetAsync(url);
+            var content = await response.Content.ReadAsStringAsync();
+            return response.IsSuccessStatusCode ? content : "Error Message : " + content;
+        }
+
+        public async Task<string> GetCustomer(string customerId)
+        {
+            var companyId = _configuration["intuit:realmid"];
+            var apiBaseUrl = $"https://quickbooks.api.intuit.com/v3/company/{companyId}/customer/{Uri.EscapeDataString(customerId)}?minorversion=75";
+            return await QuickBooksGet(apiBaseUrl);
         }
 
         public async Task<string> getCustomerId(string CompanyId, string customername)
         {
-            var existData = await _context.Settings
-                    .Where(p => p.tokenFrom == "quickbooks")
-                    .OrderByDescending(p => p.DateAdded)
-                    .FirstOrDefaultAsync();
-            var accessToken = existData.AccessToken;
-            bool isExpired = IsAccessTokenExpired(existData.DateAdded, existData.ExpiresIn);
-
-            if (isExpired)
-            {
-                accessToken = await RefreshToken();
-                Console.WriteLine("Access token is expired.");
-            }
-
-            var ApiBaseUrl = _configuration["intuit:baseURL"];
             try
             {
-                //string apiBaseUrl = $"{ApiBaseUrl}{CompanyId}/query";
                 string query = "SELECT * FROM Customer WHERE DisplayName = '" + customername.Replace("'", "\\'") + "'";
                 string apiBaseUrl = $"https://quickbooks.api.intuit.com/v3/company/{CompanyId}/query?query={Uri.EscapeDataString(query)}&minorversion=75";
-
-                using (var client = new HttpClient())
-                {
-                    // Set the Authorization header
-                    client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
-                    client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-
-                    // Build the complete request URI with query parameters
-                    var requestUri = $"{apiBaseUrl}?query={Uri.EscapeDataString(query)}";
-
-                    // Send the GET request
-                    var response = await client.GetAsync(apiBaseUrl);
-                    // Check for success and return the response content
-                    if (response.IsSuccessStatusCode)
-                    {
-                        var content = await response.Content.ReadAsStringAsync();
-                        return content;
-                    }
-                    else
-                    {
-
-                        // Handle errors
-                        var errorContent = await response.Content.ReadAsStringAsync();
-                        return "Error Message : "+errorContent;
-                    }
-                }
+                return await QuickBooksGet(apiBaseUrl);
             }
             catch (HttpRequestException ex)
             {
