@@ -113,12 +113,18 @@ namespace CustomerPortalAPI.Services
             try
             {
                 var cust = await getCustomerId(CompanyId, CustomerName);
-                
+                if (string.IsNullOrWhiteSpace(cust) || !cust.TrimStart().StartsWith("{"))
+                {
+                    return cust;
+                }
+
                 var document = JsonDocument.Parse(cust);
 
-                // Navigate to the "Id" field
                 var root = document.RootElement;
-                var queryResponse = root.GetProperty("QueryResponse");
+                if (!root.TryGetProperty("QueryResponse", out var queryResponse))
+                {
+                    return cust;
+                }
                 
                 if (queryResponse.TryGetProperty("Customer", out JsonElement customerElement))
                 {
@@ -346,22 +352,36 @@ namespace CustomerPortalAPI.Services
                     .FirstOrDefaultAsync();
             if (existData == null) return "QuickBooks is not connected.";
 
-            var accessToken = existData.AccessToken;
+            var savedToken = existData.AccessToken ?? "";
+            var accessToken = savedToken;
             if (IsAccessTokenExpired(existData.DateAdded, existData.ExpiresIn))
             {
-                accessToken = await RefreshToken();
+                var refreshed = await RefreshToken();
+                if (IsBearerToken(refreshed)) accessToken = refreshed;
             }
 
             var body = await SendBearerGet(url, accessToken);
             if (!IsAuthFailure(body)) return body;
 
-            accessToken = await RefreshToken();
-            if (string.IsNullOrWhiteSpace(accessToken) || accessToken.TrimStart().StartsWith("{") || accessToken.StartsWith("Error"))
+            var retry = await RefreshToken();
+            if (!IsBearerToken(retry))
             {
-                return "QuickBooks rejected the saved sign-in. Reconnect QuickBooks, then try again.";
+                if (!string.Equals(accessToken, savedToken, StringComparison.Ordinal))
+                {
+                    var fallback = await SendBearerGet(url, savedToken);
+                    if (!IsAuthFailure(fallback)) return fallback;
+                }
+                return string.IsNullOrWhiteSpace(retry) ? body : retry;
             }
 
-            return await SendBearerGet(url, accessToken);
+            return await SendBearerGet(url, retry);
+        }
+
+        private static bool IsBearerToken(string? value)
+        {
+            if (string.IsNullOrWhiteSpace(value)) return false;
+            var token = value.Trim();
+            return !token.StartsWith("{") && !token.StartsWith("Error") && token.Count(ch => ch == '.') >= 2;
         }
 
         private static bool IsAuthFailure(string body)
