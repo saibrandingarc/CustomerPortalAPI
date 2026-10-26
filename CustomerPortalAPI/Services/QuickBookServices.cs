@@ -374,9 +374,8 @@ namespace CustomerPortalAPI.Services
             try
             {
                 //string apiBaseUrl = $"{ApiBaseUrl}{CompanyId}/query";
-                string query = "SELECT * FROM Customer WHERE DisplayName = '"+ customername +"'";
-                //string query = "select * from Customer Where Metadata.LastUpdatedTime > '2015-03-01'";
-                string apiBaseUrl = $"https://quickbooks.api.intuit.com/v3/company/{CompanyId}/query?query={query}&minorversion=74";
+                string query = "SELECT * FROM Customer WHERE DisplayName = '" + customername.Replace("'", "\\'") + "'";
+                string apiBaseUrl = $"https://quickbooks.api.intuit.com/v3/company/{CompanyId}/query?query={Uri.EscapeDataString(query)}&minorversion=75";
 
                 using (var client = new HttpClient())
                 {

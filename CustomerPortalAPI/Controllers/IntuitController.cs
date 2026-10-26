@@ -83,37 +83,48 @@ public class IntuitController : ControllerBase
                 return NotFound(new { message = "No QuickBooks customer matches that company." });
             }
 
-            var customerId = customers[0].GetProperty("Id").GetString();
+            var match = customers.ValueKind == JsonValueKind.Array
+                ? (customers.GetArrayLength() == 0 ? (JsonElement?)null : customers[0])
+                : customers.ValueKind == JsonValueKind.Object ? customers : null;
+            if (match == null)
+            {
+                return NotFound(new { message = "No QuickBooks customer matches that company." });
+            }
+
+            var customerId = JsonText(match.Value, "Id");
+            if (string.IsNullOrEmpty(customerId))
+            {
+                return StatusCode(502, new { message = "QuickBooks did not return a customer id." });
+            }
+
             var raw = await _quickBookServices.GetCustomer(customerId);
             var customerDocument = JsonDocument.Parse(raw);
             if (!customerDocument.RootElement.TryGetProperty("Customer", out var customer))
             {
-                return StatusCode(502, raw);
+                return StatusCode(502, new { message = "QuickBooks did not return the customer.", detail = raw });
             }
 
             string? email = null;
-            if (customer.TryGetProperty("PrimaryEmailAddr", out var emailNode)
-                && emailNode.TryGetProperty("Address", out var addressNode))
+            if (customer.TryGetProperty("PrimaryEmailAddr", out var emailNode))
             {
-                email = addressNode.GetString();
+                email = JsonText(emailNode, "Address");
             }
 
-            JsonElement bill = default;
-            var hasBill = customer.TryGetProperty("BillAddr", out bill);
+            var hasBill = customer.TryGetProperty("BillAddr", out var bill);
             return Ok(new
             {
                 id = customerId,
                 primaryEmailAddr = new { address = email },
                 billAddr = hasBill ? new
                 {
-                    id = bill.TryGetProperty("Id", out var id) ? id.GetString() : null,
-                    line1 = bill.TryGetProperty("Line1", out var line1) ? line1.GetString() : null,
-                    city = bill.TryGetProperty("City", out var city) ? city.GetString() : null,
-                    countrySubDivisionCode = bill.TryGetProperty("CountrySubDivisionCode", out var region) ? region.GetString() : null,
-                    postalCode = bill.TryGetProperty("PostalCode", out var postal) ? postal.GetString() : null,
-                    country = bill.TryGetProperty("Country", out var country) ? country.GetString() : null,
-                    lat = bill.TryGetProperty("Lat", out var lat) ? lat.GetString() : null,
-                    @long = bill.TryGetProperty("Long", out var longitude) ? longitude.GetString() : null,
+                    id = JsonText(bill, "Id"),
+                    line1 = JsonText(bill, "Line1"),
+                    city = JsonText(bill, "City"),
+                    countrySubDivisionCode = JsonText(bill, "CountrySubDivisionCode"),
+                    postalCode = JsonText(bill, "PostalCode"),
+                    country = JsonText(bill, "Country"),
+                    lat = JsonText(bill, "Lat"),
+                    @long = JsonText(bill, "Long"),
                 } : null,
             });
         }
@@ -137,6 +148,19 @@ public class IntuitController : ControllerBase
         return File(pdfStream, "application/pdf", $"Invoice_{invoiceid}.pdf");
     }
 
+}
+
+static string? JsonText(JsonElement element, string name)
+{
+    if (!element.TryGetProperty(name, out var value)) return null;
+    return value.ValueKind switch
+    {
+        JsonValueKind.String => value.GetString(),
+        JsonValueKind.Number => value.GetRawText(),
+        JsonValueKind.True => "true",
+        JsonValueKind.False => "false",
+        _ => null,
+    };
 }
 
 // Helper class for token response
