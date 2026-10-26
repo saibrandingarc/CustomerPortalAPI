@@ -331,6 +331,30 @@ namespace CustomerPortalAPI.Services
             }
         }
 
+        public async Task<string> GetCustomer(string customerId)
+        {
+            var existData = await _context.Settings
+                    .Where(p => p.tokenFrom == "quickbooks")
+                    .OrderByDescending(p => p.DateAdded)
+                    .FirstOrDefaultAsync();
+            if (existData == null) return "QuickBooks is not connected.";
+
+            var accessToken = existData.AccessToken;
+            if (IsAccessTokenExpired(existData.DateAdded, existData.ExpiresIn))
+            {
+                accessToken = await RefreshToken();
+            }
+
+            var companyId = _configuration["intuit:realmid"];
+            var apiBaseUrl = $"https://quickbooks.api.intuit.com/v3/company/{companyId}/customer/{Uri.EscapeDataString(customerId)}?minorversion=75";
+
+            using var client = new HttpClient();
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            var response = await client.GetAsync(apiBaseUrl);
+            return await response.Content.ReadAsStringAsync();
+        }
+
         public async Task<string> getCustomerId(string CompanyId, string customername)
         {
             var existData = await _context.Settings

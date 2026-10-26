@@ -8,6 +8,7 @@ using System.Net.Http.Headers;
 //using Microsoft.OpenApi.Models;
 using RestSharp;
 using System.Text;
+using System.Text.Json;
 
 namespace CustomerPortalAPI.Controllers;
 
@@ -67,6 +68,61 @@ public class IntuitController : ControllerBase
     }
 
     // Step 4: Fetch Invoices
+    [HttpGet("customer/{CustomerName}")]
+    public async Task<IActionResult> GetCustomer(string CustomerName)
+    {
+        var companyId = _configuration["intuit:realmid"];
+        var lookup = await _quickBookServices.getCustomerId(companyId, CustomerName);
+        try
+        {
+            var document = JsonDocument.Parse(lookup);
+            if (!document.RootElement.TryGetProperty("QueryResponse", out var query)
+                || !query.TryGetProperty("Customer", out var customers)
+                || customers.GetArrayLength() == 0)
+            {
+                return NotFound(new { message = "No QuickBooks customer matches that company." });
+            }
+
+            var customerId = customers[0].GetProperty("Id").GetString();
+            var raw = await _quickBookServices.GetCustomer(customerId);
+            var customerDocument = JsonDocument.Parse(raw);
+            if (!customerDocument.RootElement.TryGetProperty("Customer", out var customer))
+            {
+                return StatusCode(502, raw);
+            }
+
+            string? email = null;
+            if (customer.TryGetProperty("PrimaryEmailAddr", out var emailNode)
+                && emailNode.TryGetProperty("Address", out var addressNode))
+            {
+                email = addressNode.GetString();
+            }
+
+            JsonElement bill = default;
+            var hasBill = customer.TryGetProperty("BillAddr", out bill);
+            return Ok(new
+            {
+                id = customerId,
+                primaryEmailAddr = new { address = email },
+                billAddr = hasBill ? new
+                {
+                    id = bill.TryGetProperty("Id", out var id) ? id.GetString() : null,
+                    line1 = bill.TryGetProperty("Line1", out var line1) ? line1.GetString() : null,
+                    city = bill.TryGetProperty("City", out var city) ? city.GetString() : null,
+                    countrySubDivisionCode = bill.TryGetProperty("CountrySubDivisionCode", out var region) ? region.GetString() : null,
+                    postalCode = bill.TryGetProperty("PostalCode", out var postal) ? postal.GetString() : null,
+                    country = bill.TryGetProperty("Country", out var country) ? country.GetString() : null,
+                    lat = bill.TryGetProperty("Lat", out var lat) ? lat.GetString() : null,
+                    @long = bill.TryGetProperty("Long", out var longitude) ? longitude.GetString() : null,
+                } : null,
+            });
+        }
+        catch (Exception)
+        {
+            return StatusCode(502, lookup);
+        }
+    }
+
     [HttpGet("invoices/{CustomerName}")]
     public async Task<IActionResult> GetInvoices(string CustomerName)
     {
