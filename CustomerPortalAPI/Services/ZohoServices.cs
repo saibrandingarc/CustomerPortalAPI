@@ -27,13 +27,15 @@ namespace CustomerPortalAPI.Services
         private readonly IConfiguration _configuration;
         private readonly HttpClient _httpClient;
         private readonly ApplicationDbContext _context;
+        private readonly ContentStatusCatalog _contentStatusCatalog;
 
-        public ZohoServices(ILoggerFactory loggerFactory, IConfiguration configuration, HttpClient httpClient, ApplicationDbContext context)
+        public ZohoServices(ILoggerFactory loggerFactory, IConfiguration configuration, HttpClient httpClient, ApplicationDbContext context, ContentStatusCatalog contentStatusCatalog)
         {
             _logger = loggerFactory.CreateLogger<ZohoServices>();
             _configuration = configuration;
             _httpClient = httpClient;
             _context = context;
+            _contentStatusCatalog = contentStatusCatalog;
         }
 
         public string GetAuthorizationUrl()
@@ -1598,6 +1600,13 @@ namespace CustomerPortalAPI.Services
 
                     // Navigate to data[0].Client_Notes
                     string clientNotes = root.GetProperty("data")[0].GetProperty("Client_Notes").GetString();
+                    string workflow = root.GetProperty("data")[0].GetProperty("Workflow").GetString();
+                    string CurrentStatus = root.GetProperty("data")[0].GetProperty("Status").GetString();
+                    string[] workflowStatuses = _contentStatusCatalog.GetByWorkflow(workflow);
+                    Console.WriteLine($"Workflow '{workflow}' has {workflowStatuses.Length} statuses");
+                    int statusIndex = Array.IndexOf(workflowStatuses, CurrentStatus);
+                    string updateStatus = workflowStatuses[statusIndex + 1];
+                    Console.WriteLine($"updated Workflow '{updateStatus}' has {workflowStatuses.Length} statuses");
 
                     // Safely append date/time and retain existing notes
                     string currentTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
@@ -1614,7 +1623,9 @@ namespace CustomerPortalAPI.Services
                             new DeliverableModel
                             {
                                 Client_Notes = updatedNotes,
-                                Client_Approval_Status = status
+                                Client_Approval_Status = status,
+                                Status = updateStatus,
+                                Main_Status = updateStatus
                             }
                         }
                     };

@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using CustomerPortalAPI.Services;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Configuration.AddJsonFile("ContentStatuses.json", optional: false, reloadOnChange: true);
 
 // Add services to the container.
 builder.Services.AddControllers();
@@ -17,6 +18,7 @@ builder.Services.AddSwaggerGen(options =>
 });
 
 // Register services
+builder.Services.AddSingleton<ContentStatusCatalog>();
 builder.Services.AddHttpClient<ZohoServices>();
 builder.Services.AddScoped<SettingsService>();
 builder.Services.AddScoped<EmailService>();
