@@ -1606,6 +1606,10 @@ namespace CustomerPortalAPI.Services
                     Console.WriteLine($"Workflow '{workflow}' has {workflowStatuses.Length} statuses");
                     int statusIndex = Array.IndexOf(workflowStatuses, CurrentStatus);
                     string updateStatus = workflowStatuses[statusIndex + 1];
+                    if(status=="Approved")
+                    {
+                        updateStatus = workflowStatuses[statusIndex + 2];
+                    }
                     Console.WriteLine($"updated Workflow '{updateStatus}' has {workflowStatuses.Length} statuses");
 
                     // Safely append date/time and retain existing notes
