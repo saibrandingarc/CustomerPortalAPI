@@ -46,6 +46,7 @@ namespace CustomerPortalAPI.Models
     public class CaseContextRequest
     {
         public string? Comments { get; set; }
+        public string? SubmittedBy { get; set; }
     }
 
     public class CaseContextUpdateResult
@@ -56,6 +57,7 @@ namespace CustomerPortalAPI.Models
         public string CaseName { get; set; } = "";
         public string Status { get; set; } = "";
         public string Context { get; set; } = "";
+        public string SubmittedBy { get; set; } = "";
     }
 }
 

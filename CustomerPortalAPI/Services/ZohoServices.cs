@@ -1243,7 +1243,11 @@ namespace CustomerPortalAPI.Services
             response.EnsureSuccessStatusCode();
         }
 
-        public async Task<CaseContextUpdateResult?> AddZohoCaseContextAsync(string companyId, string caseId, string? comments)
+        public async Task<CaseContextUpdateResult?> AddZohoCaseContextAsync(
+            string companyId,
+            string caseId,
+            string? comments,
+            string? submittedBy = null)
         {
             CaseContextUpdateResult Fail(int statusCode, string body) => new()
             {
@@ -1305,7 +1309,10 @@ namespace CustomerPortalAPI.Services
             var description = record["Description"]?.Type == JTokenType.Null
                 ? ""
                 : record["Description"]?.ToString() ?? "";
-            var entry = ContextTimestamp() + "\n" + context;
+            var author = NormalizeSubmittedBy(submittedBy);
+            var entry = string.IsNullOrWhiteSpace(author)
+                ? ContextTimestamp() + "\n" + context
+                : ContextTimestamp() + " by " + author + "\n" + context;
             var updatedDescription = string.IsNullOrWhiteSpace(description)
                 ? entry
                 : description.TrimEnd() + "\n\n" + entry;
@@ -1344,8 +1351,20 @@ namespace CustomerPortalAPI.Services
                 CaseId = string.IsNullOrWhiteSpace(caseNumber) ? caseId : caseNumber,
                 CaseName = caseName,
                 Status = status,
-                Context = context
+                Context = context,
+                SubmittedBy = author
             };
+        }
+
+        private static string NormalizeSubmittedBy(string? submittedBy)
+        {
+            if (string.IsNullOrWhiteSpace(submittedBy))
+            {
+                return "";
+            }
+
+            var cleaned = string.Join(" ", submittedBy.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+            return cleaned.Length <= 120 ? cleaned : cleaned.Substring(0, 120);
         }
 
         private static string ContextTimestamp()

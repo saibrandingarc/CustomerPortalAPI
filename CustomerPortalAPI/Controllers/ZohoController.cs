@@ -118,7 +118,11 @@ public class ZohoController : ControllerBase
     [HttpPost("zoho/case/{companyId}/{caseNumber}/context")]
     public async Task<IActionResult> AddCaseContext(string companyId, string caseNumber, [FromBody] CaseContextRequest? request)
     {
-        var result = await _zohoOAuthService.AddZohoCaseContextAsync(companyId, caseNumber, request?.Comments);
+        var result = await _zohoOAuthService.AddZohoCaseContextAsync(
+            companyId,
+            caseNumber,
+            request?.Comments,
+            request?.SubmittedBy);
         if (result == null)
         {
             return StatusCode(502, new { message = "Unable to reach Zoho." });
@@ -128,7 +132,12 @@ public class ZohoController : ControllerBase
         {
             try
             {
-                await _emailService.SendCaseContextUpdateAsync(result.CaseId, result.CaseName, result.Status, result.Context);
+                await _emailService.SendCaseContextUpdateAsync(
+                    result.CaseId,
+                    result.CaseName,
+                    result.Status,
+                    result.Context,
+                    result.SubmittedBy);
             }
             catch (Exception ex)
             {

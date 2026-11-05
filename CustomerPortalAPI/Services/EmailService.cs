@@ -679,7 +679,13 @@ namespace CustomerPortalAPI.Services
             }
         }
 
-        public async Task SendCaseContextUpdateAsync(string caseId, string caseName, string status, string context, bool isHtml = true)
+        public async Task SendCaseContextUpdateAsync(
+            string caseId,
+            string caseName,
+            string status,
+            string context,
+            string? submittedBy = null,
+            bool isHtml = true)
         {
             try
             {
@@ -693,11 +699,17 @@ namespace CustomerPortalAPI.Services
                 var safeName = WebUtility.HtmlEncode(string.IsNullOrWhiteSpace(caseName) ? "Untitled case" : caseName);
                 var safeStatus = WebUtility.HtmlEncode(string.IsNullOrWhiteSpace(status) ? "New" : status);
                 var safeContext = WebUtility.HtmlEncode(context).Replace("\r\n", "\n").Replace("\n", "<br/>");
+                var safeAuthor = WebUtility.HtmlEncode(submittedBy ?? "").Trim();
+                var authorLine = string.IsNullOrWhiteSpace(safeAuthor)
+                    ? ""
+                    : $"Submitted by: {safeAuthor}<br/>";
                 var message =
                     "A case was updated with additional context.<br/><br/>" +
                     $"Case ID: {safeId}<br/>" +
                     $"Case Name: {safeName}<br/>" +
-                    $"Status: {safeStatus}<br/><br/>" +
+                    $"Status: {safeStatus}<br/>" +
+                    authorLine +
+                    "<br/>" +
                     $"Update:<br/>{safeContext}";
 
                 var mimeMessage = new MimeMessage();
