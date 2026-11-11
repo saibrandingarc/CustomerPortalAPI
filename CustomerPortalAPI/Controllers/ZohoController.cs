@@ -307,7 +307,12 @@ public class ZohoController : ControllerBase
             }
         }
         var deliverables = await _zohoOAuthService.GetZohoDeliverablesByCompanyAndBlockAsync(companyId, blockId, status_field);
-        return Ok(deliverables);
+        if (string.IsNullOrWhiteSpace(deliverables))
+        {
+            deliverables = "{\"data\":[]}";
+        }
+
+        return Content(deliverables, "application/json");
     }
 
     [HttpPost("zoho/deliverables/{deliverableId}/{status}")]

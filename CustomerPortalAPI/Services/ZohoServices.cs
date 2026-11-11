@@ -1053,11 +1053,18 @@ namespace CustomerPortalAPI.Services
 
                     var response = await _httpClient.SendAsync(request);
                     Console.WriteLine($"Request failed: {response}");
-                    response.EnsureSuccessStatusCode();
+                    if (response.StatusCode == System.Net.HttpStatusCode.NoContent)
+                    {
+                        return "{\"data\":[]}";
+                    }
 
-                    //request.Headers.Add("Authorization", $"Bearer {accessToken}");
                     response.EnsureSuccessStatusCode();
                     var deliverables = await response.Content.ReadAsStringAsync();
+                    if (string.IsNullOrWhiteSpace(deliverables))
+                    {
+                        return "{\"data\":[]}";
+                    }
+
                     return AddContentFileGoogleUrlToDeliverables(deliverables);
                 }
                 catch (HttpRequestException ex)
